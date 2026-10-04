@@ -1,0 +1,16 @@
+/target/
+**/*.rs.bk
+
+*.lnk
+
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+.env
+.env.*
+!.env.example
+
+/*.log
