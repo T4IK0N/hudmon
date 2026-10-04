@@ -17,7 +17,7 @@ use std::{
 use winit::{
     dpi::PhysicalSize,
     event::{Event, StartCause, WindowEvent},
-    event_loop::{ControlFlow, EventLoop, EventLoopBuilder},
+    event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder, WindowLevel},
 };
 
