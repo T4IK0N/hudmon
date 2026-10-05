@@ -234,6 +234,7 @@ New data sources are added by implementing the `Provider` trait in `src/metrics/
 - Wayland: no always-on-top, no window positioning and no transparency — use XWayland (see above).
 - No global hotkeys and no tray icon yet.
 - The executables are not code-signed.
+- Support for other screens
 
 ---
 
@@ -472,3 +473,4 @@ Nowe źródło danych dodajesz, implementując trait `Provider` w `src/metrics/`
 - Wayland: brak „zawsze na wierzchu”, brak ustawiania pozycji okna i brak przezroczystości — użyj XWayland (patrz wyżej).
 - Brak globalnych skrótów klawiszowych i ikony w zasobniku.
 - Pliki wykonywalne nie są podpisane cyfrowo.
+- Obsługa innych ekranów
