@@ -1,6 +1,6 @@
 [package]
 name = "hudmon"
-version = "0.1.0"
+version = "1.1.0"
 edition = "2021"
 description = "Minimalistyczny retro overlay: FPS / CPU / GPU / RAM (Windows + Linux)"
 
