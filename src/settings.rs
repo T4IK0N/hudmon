@@ -2,16 +2,22 @@
 //! and a running overlay (`hudmon-overlay.exe`) reloads the file in ~0.5 s
 //! the window and the preview area have a fixed size; an overlay that is too
 use crate::{
-    config::{Config, Lang},
+    config::{self, Config, Lang},
+    hotkeys::{self, Action},
     instance,
     metrics::Snapshot,
     render::{self, fill_rect, put, text, DIM, LABEL, VALUE},
 };
-use std::{num::NonZeroU32, rc::Rc};
+use std::{
+    num::NonZeroU32,
+    rc::Rc,
+    time::{Duration, Instant},
+};
 use winit::{
     dpi::PhysicalSize,
-    event::{ElementState, Event, MouseButton, WindowEvent},
+    event::{ElementState, Event, KeyEvent, MouseButton, StartCause, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
+    keyboard::{KeyCode, PhysicalKey},
     window::WindowBuilder,
 };
 
@@ -285,6 +291,45 @@ fn click(cfg: &mut Config, mx: i32, my: i32) -> Click {
     }
 }
 
+/// keys inside the settings window (the window must have the focus; the global hotkeys are in `hotkeys.rs`)
+/// 1-7 toggles, Up/Down font, Left/Right opacity, C corner, L language, Enter start, Delete close
+fn key_press(cfg: &mut Config, code: KeyCode) -> Click {
+    let before = cfg.clone();
+    let action = match code {
+        KeyCode::Enter | KeyCode::NumpadEnter => return Click::StartOverlay,
+        KeyCode::Delete => return Click::CloseOverlay,
+        KeyCode::KeyL => {
+            cfg.lang = if cfg.lang == Lang::Pl {
+                Lang::En
+            } else {
+                Lang::Pl
+            };
+            None
+        }
+        KeyCode::Digit1 | KeyCode::Numpad1 => Some(Action::Fps),
+        KeyCode::Digit2 | KeyCode::Numpad2 => Some(Action::Cpu),
+        KeyCode::Digit3 | KeyCode::Numpad3 => Some(Action::Gpu),
+        KeyCode::Digit4 | KeyCode::Numpad4 => Some(Action::Ram),
+        KeyCode::Digit5 | KeyCode::Numpad5 => Some(Action::Temps),
+        KeyCode::Digit6 | KeyCode::Numpad6 => Some(Action::Labels),
+        KeyCode::Digit7 | KeyCode::Numpad7 => Some(Action::Border),
+        KeyCode::KeyC => Some(Action::NextCorner),
+        KeyCode::ArrowUp => Some(Action::FontUp),
+        KeyCode::ArrowDown => Some(Action::FontDown),
+        KeyCode::ArrowRight => Some(Action::OpacityUp),
+        KeyCode::ArrowLeft => Some(Action::OpacityDown),
+        _ => None,
+    };
+    if let Some(a) = action {
+        hotkeys::apply(a, cfg);
+    }
+    if *cfg != before {
+        Click::Changed
+    } else {
+        Click::Nothing
+    }
+}
+
 fn frame(buf: &mut [u32], x: i32, y: i32, w: i32, h: i32, border: u32, fill: u32) {
     fill_rect(
         buf, WIN_W, x as usize, y as usize, w as usize, h as usize, border,
@@ -517,47 +562,68 @@ pub fn run() {
     let mut surface = softbuffer::Surface::new(&context, window.clone()).expect("surface");
     let mut mouse = (0i32, 0i32);
     let mut status = Status::None;
+    let mut cfg_time = config::mtime();
 
     event_loop
         .run(move |event, elwt| {
-            elwt.set_control_flow(ControlFlow::Wait);
-            let Event::WindowEvent { event, .. } = event else {
-                return;
+            // wake up twice a second: the file can be changed by a global hotkey of the overlay
+            elwt.set_control_flow(ControlFlow::WaitUntil(
+                Instant::now() + Duration::from_millis(500),
+            ));
+            let event = match event {
+                Event::NewEvents(StartCause::ResumeTimeReached { .. }) => {
+                    let t = config::mtime();
+                    if t != cfg_time {
+                        cfg_time = t;
+                        let new = Config::load();
+                        if new != cfg {
+                            cfg = new;
+                            window.set_title(tr(cfg.lang).window_title);
+                            window.request_redraw();
+                        }
+                    }
+                    return;
+                }
+                Event::WindowEvent { event, .. } => event,
+                _ => return,
             };
-            match event {
-                WindowEvent::CloseRequested => elwt.exit(),
+            let res = match event {
+                WindowEvent::CloseRequested => {
+                    elwt.exit();
+                    return;
+                }
                 WindowEvent::CursorMoved { position, .. } => {
-                    mouse = (position.x as i32, position.y as i32)
+                    mouse = (position.x as i32, position.y as i32);
+                    return;
                 }
                 WindowEvent::MouseInput {
                     state: ElementState::Pressed,
                     button: MouseButton::Left,
                     ..
-                } => match click(&mut cfg, mouse.0, mouse.1) {
-                    Click::Changed => {
-                        cfg.save();
-                        window.set_title(tr(cfg.lang).window_title);
-                        window.request_redraw();
+                } => click(&mut cfg, mouse.0, mouse.1),
+                WindowEvent::KeyboardInput {
+                    event:
+                        KeyEvent {
+                            physical_key: PhysicalKey::Code(code),
+                            state: ElementState::Pressed,
+                            repeat,
+                            ..
+                        },
+                    ..
+                } => {
+                    // holding a key repeats only the sliders (arrows), never toggles or Start/Close
+                    let arrow = matches!(
+                        code,
+                        KeyCode::ArrowUp
+                            | KeyCode::ArrowDown
+                            | KeyCode::ArrowLeft
+                            | KeyCode::ArrowRight
+                    );
+                    if repeat && !arrow {
+                        return;
                     }
-                    Click::StartOverlay => {
-                        status = if instance::start_overlay() {
-                            Status::Started
-                        } else {
-                            Status::MissingFile
-                        };
-                        window.request_redraw();
-                    }
-                    Click::CloseOverlay => {
-                        let r = instance::kill_others();
-                        status = match (r.killed, r.failed) {
-                            (0, 0) => Status::NotRunning,
-                            (_, 0) => Status::Closed,
-                            _ => Status::Denied,
-                        };
-                        window.request_redraw();
-                    }
-                    Click::Nothing => {}
-                },
+                    key_press(&mut cfg, code)
+                }
                 WindowEvent::RedrawRequested => {
                     let (Some(w), Some(h)) =
                         (NonZeroU32::new(WIN_W as u32), NonZeroU32::new(WIN_H as u32))
@@ -570,8 +636,35 @@ pub fn run() {
                             let _ = buf.present();
                         }
                     }
+                    return;
                 }
-                _ => {}
+                _ => return,
+            };
+            match res {
+                Click::Changed => {
+                    cfg.save();
+                    cfg_time = config::mtime();
+                    window.set_title(tr(cfg.lang).window_title);
+                    window.request_redraw();
+                }
+                Click::StartOverlay => {
+                    status = if instance::start_overlay() {
+                        Status::Started
+                    } else {
+                        Status::MissingFile
+                    };
+                    window.request_redraw();
+                }
+                Click::CloseOverlay => {
+                    let r = instance::kill_others();
+                    status = match (r.killed, r.failed) {
+                        (0, 0) => Status::NotRunning,
+                        (_, 0) => Status::Closed,
+                        _ => Status::Denied,
+                    };
+                    window.request_redraw();
+                }
+                Click::Nothing => {}
             }
         })
         .expect("run");

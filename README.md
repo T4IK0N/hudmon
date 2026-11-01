@@ -28,6 +28,7 @@ It consists of two programs that live in the same folder:
 - Changes apply live (the overlay reloads its config about every 0.5 s).
 - Only one overlay runs at a time (starting a new one closes the old one).
 - Settings UI in English and Polish.
+- **Keyboard shortcuts:** global hotkeys on Windows (work inside a game) and keys in the settings window — see [Keyboard shortcuts](#keyboard-shortcuts).
 
 ---
 
@@ -138,8 +139,66 @@ You can also edit the config file by hand:
 | `bg_opacity` | `0`–`100` | Background opacity in % (text is always opaque) |
 | `corner` | `0`–`3` | 0 top-left, 1 top-right, 2 bottom-left, 3 bottom-right |
 | `lang` | `pl` / `en` | Language of the settings window |
+| `hotkeys` | `0` / `1` | Global hotkeys of the overlay (Windows) |
+| `key_<action>` | e.g. `ctrl+alt+f2`, `none` | Shortcut of an action — see [Keyboard shortcuts](#keyboard-shortcuts) |
 
 Temperatures are green below 70 °C, amber from 70 °C and red from 85 °C.
+
+---
+
+## Keyboard shortcuts
+
+### Global hotkeys (Windows)
+
+The overlay is click-through and never takes the focus, so it is controlled with **global hotkeys** that work in any program, also in a game. They are registered by `hudmon-overlay.exe` when it starts.
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl+Alt+F1` | Show / hide the overlay (kept only in memory — a restarted overlay is always visible) |
+| `Ctrl+Alt+F2` | FPS on/off |
+| `Ctrl+Alt+F3` | CPU on/off |
+| `Ctrl+Alt+F4` | GPU on/off |
+| `Ctrl+Alt+F5` | RAM on/off |
+| `Ctrl+Alt+F6` | Temperatures on/off |
+| `Ctrl+Alt+F7` | Labels on/off |
+| `Ctrl+Alt+F8` | Border on/off |
+| `Ctrl+Alt+F9` | Move to the next screen corner (TL → TR → BL → BR) |
+| `Ctrl+Alt+Plus` / `Ctrl+Alt+Minus` | Font size up / down (1x–6x) |
+| `Ctrl+Alt+PageUp` / `Ctrl+Alt+PageDown` | Background opacity +10 % / −10 % |
+
+Everything except show/hide is saved to `hudmon.ini`, so the settings window (if open) updates itself within about half a second and the change survives a restart.
+
+**Why not `Ctrl+Alt+<letter>`?** On many keyboard layouts (e.g. Polish) the right `Alt` (AltGr) is the same as `Ctrl+Alt`, so such a hotkey would block typing characters like `ą`, `ć`, `ł` in every program. That is why the defaults use F-keys, `+`/`-` and PageUp/PageDown.
+
+**Changing or disabling shortcuts.** Edit `hudmon.ini` (see [Settings](#settings)) and restart the overlay (*Close* → *Start*):
+
+```ini
+hotkeys=1                 # 0 = turn all global hotkeys off
+key_visible=ctrl+alt+f1   # key_<action>=<shortcut>, "none" = this action has no shortcut
+key_fps=ctrl+shift+f2
+key_corner=none
+```
+
+Actions: `visible`, `fps`, `cpu`, `gpu`, `ram`, `temps`, `labels`, `border`, `corner`, `font_up`, `font_down`, `opacity_up`, `opacity_down`.
+A shortcut is modifiers and exactly one key joined with `+`; at least one modifier is required (`ctrl`, `alt`, `shift`, `win`). Keys: `a`–`z`, `0`–`9`, `f1`–`f24`, `numpad0`–`numpad9`, `up`, `down`, `left`, `right`, `pageup`, `pagedown`, `home`, `end`, `insert`, `delete`, `space`, `plus`, `minus`. An invalid value is ignored (the default stays). If another program already uses a shortcut, hudmon skips it and writes a line to `hudmon.log`.
+
+### Keys in the settings window
+
+These work while the settings window has the focus (Windows and Linux):
+
+| Key | Action |
+|---|---|
+| `1` … `7` | Toggle FPS, CPU, GPU, RAM, temperatures, labels, border (same order as the list in the window) |
+| `↑` / `↓` | Font size up / down (can be held) |
+| `→` / `←` | Background opacity +10 % / −10 % (can be held) |
+| `C` | Next screen corner |
+| `L` | Switch language PL / EN |
+| `Enter` | Start the overlay |
+| `Delete` | Close the overlay |
+
+The settings window also re-reads `hudmon.ini` every ~0.5 s, so changes made with the global hotkeys show up there immediately.
+
+> **Linux:** global hotkeys are not implemented (X11/Wayland have no common API for them). Bind a shortcut in your desktop environment to a command that edits `hudmon.ini`, or use the keys in the settings window.
 
 ---
 
@@ -198,6 +257,7 @@ Diagnostics are written to **`hudmon.log`** next to the executables (if the fold
 | Overlay not visible in a game | Use windowed/borderless mode; exclusive fullscreen hides overlay windows. |
 | Overlay does not resize after changing the font | Look for `UpdateLayeredWindow` lines in `hudmon.log` and open an issue with them. |
 | GPU shows `n/a` | NVIDIA works everywhere. AMD works on Linux only; Intel is not supported yet. |
+| A shortcut does nothing (Windows) | Check `hudmon.log` for `Skrot ... jest zajety` (the shortcut is taken by another program) and `Skroty klawiszowe: zarejestrowano N`. Make sure `hotkeys=1`, restart the overlay after editing `key_*`, and note that the overlay is not drawn over exclusive fullscreen (the hotkeys still work). |
 
 ---
 
@@ -212,6 +272,7 @@ src/
   render.rs             software renderer (8x8 font, premultiplied ARGB)
   overlay.rs            overlay window and main loop
   settings.rs           settings window (PL/EN)
+  hotkeys.rs            keyboard shortcuts: actions, shortcut parser, global hotkeys (Windows)
   instance.rs           single instance, starting/closing the overlay
   present_win.rs        Windows: per-pixel transparent window (UpdateLayeredWindow)
   metrics/
@@ -232,8 +293,16 @@ New data sources are added by implementing the `Provider` trait in `src/metrics/
 - **Linux FPS does not work live yet.** Linux has no universal way to measure the FPS of another process, so FPS has to come from inside the game (a Vulkan layer). The current `--mangohud-dir` reader tails a MangoHud CSV log, but MangoHud keeps its log in memory and appears to write the file only when logging stops, so the value will not update live. A proper solution (own Vulkan layer) is not implemented yet.
 - GPU load: Windows with AMD/Intel and Linux with Intel are not supported.
 - Wayland: no always-on-top, no window positioning and no transparency — use XWayland (see above).
-- No global hotkeys and no tray icon yet.
+- Global hotkeys exist on Windows only (not on Linux); no tray icon yet.
 - The executables are not code-signed.
+
+### Changelog
+
+- **Keyboard shortcuts:** new module `src/hotkeys.rs` (actions, shortcut parser, global hotkeys via `RegisterHotKey` on a separate thread of the overlay).
+- Show/hide overlay shortcut (in memory only); the other actions change and save `hudmon.ini`.
+- `hudmon.ini`: new keys `hotkeys` and `key_<action>`; `Config` keeps the bindings so saving from the settings window does not erase them.
+- Settings window: keys `1`–`7`, arrows, `C`, `L`, `Enter`, `Delete`; it reloads `hudmon.ini` every ~0.5 s when the file is changed from outside.
+- `Cargo.toml`: added the `Win32_UI_Input_KeyboardAndMouse` feature of `windows-sys`.
 
 ---
 
@@ -258,6 +327,7 @@ Składa się z dwóch programów leżących w jednym folderze:
 - Zmiany działają na żywo (overlay przeładowuje ustawienia mniej więcej co 0,5 s).
 - Działa tylko jeden overlay naraz (uruchomienie nowego zamyka stary).
 - Okno ustawień po polsku i angielsku.
+- **Skróty klawiszowe:** globalne (Windows, działają w grze) oraz klawisze w oknie ustawień — zobacz [Skróty klawiszowe](#skróty-klawiszowe).
 
 ### Stan projektu
 
@@ -376,8 +446,66 @@ Plik konfiguracyjny możesz też edytować ręcznie:
 | `bg_opacity` | `0`–`100` | Krycie tła w % (tekst jest zawsze nieprzezroczysty) |
 | `corner` | `0`–`3` | 0 lewy górny, 1 prawy górny, 2 lewy dolny, 3 prawy dolny |
 | `lang` | `pl` / `en` | Język okna ustawień |
+| `hotkeys` | `0` / `1` | Globalne skróty overlaya (Windows) |
+| `key_<akcja>` | np. `ctrl+alt+f2`, `none` | Skrót danej akcji — zobacz [Skróty klawiszowe](#skróty-klawiszowe) |
 
 Temperatury są zielone poniżej 70 °C, bursztynowe od 70 °C i czerwone od 85 °C.
+
+---
+
+## Skróty klawiszowe
+
+### Skróty globalne (Windows)
+
+Overlay jest „przezroczysty” dla myszy i nigdy nie dostaje fokusu, dlatego steruje się nim **globalnymi skrótami**, które działają w każdym programie, także w grze. Rejestruje je `hudmon-overlay.exe` przy starcie.
+
+| Skrót | Działanie |
+|---|---|
+| `Ctrl+Alt+F1` | Pokaż / ukryj overlay (tylko w pamięci — po ponownym uruchomieniu overlay jest zawsze widoczny) |
+| `Ctrl+Alt+F2` | FPS wł./wył. |
+| `Ctrl+Alt+F3` | CPU wł./wył. |
+| `Ctrl+Alt+F4` | GPU wł./wył. |
+| `Ctrl+Alt+F5` | RAM wł./wył. |
+| `Ctrl+Alt+F6` | Temperatury wł./wył. |
+| `Ctrl+Alt+F7` | Napisy wł./wył. |
+| `Ctrl+Alt+F8` | Ramka wł./wył. |
+| `Ctrl+Alt+F9` | Następny róg ekranu (LG → PG → LD → PD) |
+| `Ctrl+Alt+Plus` / `Ctrl+Alt+Minus` | Czcionka większa / mniejsza (1x–6x) |
+| `Ctrl+Alt+PageUp` / `Ctrl+Alt+PageDown` | Krycie tła +10 % / −10 % |
+
+Wszystko poza pokaż/ukryj zapisuje się do `hudmon.ini`, więc otwarte okno ustawień odświeża się samo w ciągu ok. pół sekundy, a zmiana przetrwa restart.
+
+**Dlaczego nie `Ctrl+Alt+<litera>`?** Na wielu układach klawiatury (np. polskim) prawy `Alt` (AltGr) to to samo co `Ctrl+Alt`, więc taki skrót zablokowałby pisanie znaków `ą`, `ć`, `ł` we wszystkich programach. Dlatego domyślnie użyto klawiszy F, `+`/`-` i PageUp/PageDown.
+
+**Zmiana lub wyłączenie skrótów.** Edytuj `hudmon.ini` (zobacz [Ustawienia](#ustawienia)) i uruchom overlay ponownie (*Zamknij* → *Uruchom*):
+
+```ini
+hotkeys=1                 # 0 = wyłącz wszystkie skróty globalne
+key_visible=ctrl+alt+f1   # key_<akcja>=<skrót>, "none" = ta akcja nie ma skrótu
+key_fps=ctrl+shift+f2
+key_corner=none
+```
+
+Akcje: `visible`, `fps`, `cpu`, `gpu`, `ram`, `temps`, `labels`, `border`, `corner`, `font_up`, `font_down`, `opacity_up`, `opacity_down`.
+Skrót to modyfikatory i dokładnie jeden klawisz połączone znakiem `+`; wymagany jest co najmniej jeden modyfikator (`ctrl`, `alt`, `shift`, `win`). Klawisze: `a`–`z`, `0`–`9`, `f1`–`f24`, `numpad0`–`numpad9`, `up`, `down`, `left`, `right`, `pageup`, `pagedown`, `home`, `end`, `insert`, `delete`, `space`, `plus`, `minus`. Błędna wartość jest ignorowana (zostaje domyślna). Jeśli inny program już używa danego skrótu, hudmon go pomija i zapisuje linię w `hudmon.log`.
+
+### Klawisze w oknie ustawień
+
+Działają, gdy okno ustawień ma fokus (Windows i Linux):
+
+| Klawisz | Działanie |
+|---|---|
+| `1` … `7` | Przełącz FPS, CPU, GPU, RAM, temperatury, napisy, ramkę (kolejność jak na liście w oknie) |
+| `↑` / `↓` | Czcionka większa / mniejsza (można przytrzymać) |
+| `→` / `←` | Krycie tła +10 % / −10 % (można przytrzymać) |
+| `C` | Następny róg ekranu |
+| `L` | Przełącz język PL / EN |
+| `Enter` | Uruchom overlay |
+| `Delete` | Zamknij overlay |
+
+Okno ustawień co ok. 0,5 s ponownie czyta też `hudmon.ini`, więc zmiany zrobione skrótami globalnymi widać tam od razu.
+
+> **Linux:** skróty globalne nie są zaimplementowane (X11/Wayland nie mają wspólnego API). Przypisz skrót w swoim środowisku graficznym do polecenia edytującego `hudmon.ini` albo użyj klawiszy w oknie ustawień.
 
 ---
 
@@ -436,6 +564,7 @@ Diagnostyka trafia do **`hudmon.log`** obok plików wykonywalnych (jeśli folder
 | Overlay niewidoczny w grze | Użyj trybu okno/okno bez ramek; pełny ekran na wyłączność ukrywa okna overlay. |
 | Overlay nie powiększa się po zmianie czcionki | Poszukaj w `hudmon.log` linii `UpdateLayeredWindow` i zgłoś issue z nimi. |
 | GPU pokazuje `n/a` | NVIDIA działa wszędzie. AMD tylko na Linuksie; Intel jeszcze nie jest wspierany. |
+| Skrót nic nie robi (Windows) | Sprawdź w `hudmon.log` linie `Skrot ... jest zajety` (skrót zajął inny program) oraz `Skroty klawiszowe: zarejestrowano N`. Upewnij się, że `hotkeys=1`, uruchom overlay ponownie po edycji `key_*` i pamiętaj, że overlay nie jest rysowany nad pełnym ekranem na wyłączność (skróty nadal działają). |
 
 ---
 
@@ -450,6 +579,7 @@ src/
   render.rs             renderer programowy (czcionka 8x8, premultiplied ARGB)
   overlay.rs            okno overlaya i główna pętla
   settings.rs           okno ustawień (PL/EN)
+  hotkeys.rs            skróty klawiszowe: akcje, parser skrótów, skróty globalne (Windows)
   instance.rs           jedna kopia, uruchamianie/zamykanie overlaya
   present_win.rs        Windows: okno z przezroczystością per piksel (UpdateLayeredWindow)
   metrics/
@@ -470,5 +600,13 @@ Nowe źródło danych dodajesz, implementując trait `Provider` w `src/metrics/`
 - **FPS na Linuksie nie działa jeszcze na żywo.** Linux nie ma uniwersalnego sposobu mierzenia FPS cudzego procesu, więc FPS musi pochodzić z wnętrza gry (warstwa Vulkana). Obecny odczyt `--mangohud-dir` czyta koniec logu CSV MangoHuda, ale MangoHud trzyma log w pamięci i wygląda na to, że zapisuje plik dopiero po zakończeniu logowania, więc wartość nie będzie się odświeżać. Właściwe rozwiązanie (własna warstwa Vulkana) nie jest jeszcze zaimplementowane.
 - Obciążenie GPU: Windows z AMD/Intel oraz Linux z Intelem nie są wspierane.
 - Wayland: brak „zawsze na wierzchu”, brak ustawiania pozycji okna i brak przezroczystości — użyj XWayland (patrz wyżej).
-- Brak globalnych skrótów klawiszowych i ikony w zasobniku.
+- Skróty globalne są tylko na Windowsie (na Linuksie ich nie ma); brak ikony w zasobniku.
 - Pliki wykonywalne nie są podpisane cyfrowo.
+
+### Lista zmian
+
+- **Skróty klawiszowe:** nowy moduł `src/hotkeys.rs` (akcje, parser skrótów, skróty globalne przez `RegisterHotKey` na osobnym wątku overlaya).
+- Skrót pokaż/ukryj overlay (tylko w pamięci); pozostałe akcje zmieniają i zapisują `hudmon.ini`.
+- `hudmon.ini`: nowe klucze `hotkeys` i `key_<akcja>`; `Config` przechowuje skróty, więc zapis z okna ustawień ich nie kasuje.
+- Okno ustawień: klawisze `1`–`7`, strzałki, `C`, `L`, `Enter`, `Delete`; co ok. 0,5 s ponownie czyta `hudmon.ini`, gdy plik zmieni się z zewnątrz.
+- `Cargo.toml`: dodano feature `Win32_UI_Input_KeyboardAndMouse` w `windows-sys`.

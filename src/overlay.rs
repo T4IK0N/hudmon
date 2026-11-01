@@ -1,6 +1,7 @@
 //! overlay window: always-on-top, click-through, with transparent background and live settings reload
 use crate::{
     config::{self, Config},
+    hotkeys,
     metrics::{
         fps::{FpsProvider, FpsSource},
         gpu::GpuProvider,
@@ -108,7 +109,11 @@ impl Overlay {
         }
         let (x, y, w, h) = geo;
         self.pix.resize(w * h, 0);
-        render::draw(&mut self.pix, w, h, &self.cfg, &self.snap);
+        if hotkeys::visible() {
+            render::draw(&mut self.pix, w, h, &self.cfg, &self.snap);
+        } else {
+            self.pix.fill(0); // hidden with a shortcut: fully transparent, still click-through
+        }
         self.presenter.present(&self.pix, w, h, x, y);
     }
 }
@@ -153,6 +158,10 @@ pub fn run(interval: Duration, fps: FpsSource, lhm_port: u16) {
     crate::metrics::fps::log("providers ok");
 
     let cfg = Config::load();
+    #[cfg(windows)]
+    if cfg.hotkeys {
+        hotkeys::spawn(&cfg);
+    }
     let (w, h) = render::measure(&cfg);
     let event_loop = new_event_loop();
     let mut wb = WindowBuilder::new()

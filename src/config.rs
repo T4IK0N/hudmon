@@ -1,4 +1,5 @@
 //! apperance settings, the `hudmon.ini` file (key=value) is reloaded live by the overlay
+use crate::hotkeys;
 use std::{fs, path::PathBuf, time::SystemTime};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -21,6 +22,8 @@ pub struct Config {
     pub bg_opacity: u32, // 0..=100 (%)
     pub corner: u8,      // 0 TL, 1 TR, 2 BL, 3 BR
     pub lang: Lang,
+    pub hotkeys: bool,     // global keyboard shortcuts of the overlay (Windows)
+    pub keys: Vec<String>, // shortcut of each action, index = `hotkeys::ALL`; "none" = disabled
 }
 
 impl Default for Config {
@@ -38,6 +41,8 @@ impl Default for Config {
             bg_opacity: 100,
             corner: 0,
             lang: Lang::Pl,
+            hotkeys: true,
+            keys: hotkeys::default_keys(),
         }
     }
 }
@@ -98,6 +103,13 @@ impl Config {
                         Lang::Pl
                     }
                 }
+                "hotkeys" => c.hotkeys = b(),
+                k if k.starts_with("key_") => {
+                    if let (Some(i), Some(s)) = (hotkeys::index_of(&k[4..]), hotkeys::normalize(v))
+                    {
+                        c.keys[i] = s;
+                    }
+                }
                 _ => {}
             }
         }
@@ -110,12 +122,19 @@ impl Config {
             let _ = fs::create_dir_all(d);
         }
         let on = |b: bool| if b { 1 } else { 0 };
-        let text = format!(
+        let mut text = format!(
             "# hudmon - ustawienia (mozna edytowac recznie; bg_color = hex RRGGBB)\nfps={}\ncpu={}\ngpu={}\nram={}\ntemps={}\nlabels={}\nborder={}\nfont={}\nbg_color={:06X}\nbg_opacity={}\ncorner={}\nlang={}\n",
             on(self.fps), on(self.cpu), on(self.gpu), on(self.ram), on(self.temps), on(self.labels),
             on(self.border), self.font, self.bg_color, self.bg_opacity, self.corner,
             if self.lang == Lang::En { "en" } else { "pl" }
         );
+        text.push_str(&format!(
+            "# skroty klawiszowe (globalne, tylko Windows): key_<akcja>=ctrl+alt+f2, none = wylaczony\nhotkeys={}\n",
+            on(self.hotkeys)
+        ));
+        for (a, k) in hotkeys::ALL.iter().zip(&self.keys) {
+            text.push_str(&format!("key_{}={}\n", a.name(), k));
+        }
         let tmp = p.with_extension("tmp");
         if fs::write(&tmp, text).is_ok() {
             let _ = fs::rename(&tmp, &p);

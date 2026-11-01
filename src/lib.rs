@@ -1,5 +1,6 @@
 //! hudmon - shared code between overlay (`hudmon`) and settings window (`hudmon-settings`).
 pub mod config;
+pub mod hotkeys;
 pub mod instance;
 pub mod metrics;
 pub mod overlay;
