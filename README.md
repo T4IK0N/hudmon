@@ -170,7 +170,7 @@ Everything except show/hide is saved to `hudmon.ini`, so the settings window (if
 
 **Why not `Ctrl+Alt+<letter>`?** On many keyboard layouts (e.g. Polish) the right `Alt` (AltGr) is the same as `Ctrl+Alt`, so such a hotkey would block typing characters like `ą`, `ć`, `ł` in every program. That is why the defaults use F-keys, `+`/`-` and PageUp/PageDown.
 
-**Changing or disabling shortcuts.** Edit `hudmon.ini` (see [Settings](#settings)) and restart the overlay (*Close* → *Start*):
+**Changing or disabling shortcuts.** Use the **Hotkeys >** page of the settings window (see below), or edit `hudmon.ini` by hand (see [Settings](#settings)). The overlay reads its hotkeys only at start, so after a change press *Apply* on the Hotkeys page (or *Close* → *Start*). Manual example:
 
 ```ini
 hotkeys=1                 # 0 = turn all global hotkeys off
@@ -193,10 +193,22 @@ These work while the settings window has the focus (Windows and Linux):
 | `→` / `←` | Background opacity +10 % / −10 % (can be held) |
 | `C` | Next screen corner |
 | `L` | Switch language PL / EN |
+| `K` | Open the Hotkeys page (Windows) |
 | `Enter` | Start the overlay |
 | `Delete` | Close the overlay |
 
 The settings window also re-reads `hudmon.ini` every ~0.5 s, so changes made with the global hotkeys show up there immediately.
+
+### Hotkeys page in the settings window (Windows)
+
+Click **Hotkeys >** (or press `K`) to edit the global shortcuts. The page has a row per action:
+
+- **Global hotkeys** checkbox — switches all global hotkeys on/off (`hotkeys=` in the ini).
+- **Click a shortcut**, then press the new key combination (at least one of `Ctrl` / `Alt` / `Shift` / `Win` plus a key). `Esc` cancels the recording.
+- **`x` button** or `Del` / `Backspace` during recording — disables that shortcut (`none`).
+- A shortcut already used by another action is refused (*Shortcut already used*). `Ctrl+Alt+<letter or digit>` is accepted, but a warning is shown because it is AltGr on many layouts and blocks typing special characters.
+- **Defaults** restores all default shortcuts; **Apply** restarts the running overlay so that it registers the new shortcuts (if the overlay is not running, nothing needs to be done — it reads them at the next start). `Esc` (when nothing is being recorded) or **Back** returns to the main page.
+- To record a combination that the *running* overlay currently owns (e.g. its own current shortcut), close the overlay first — Windows delivers such a combination to the overlay, not to the settings window.
 
 > **Linux:** global hotkeys are not implemented (X11/Wayland have no common API for them). Bind a shortcut in your desktop environment to a command that edits `hudmon.ini`, or use the keys in the settings window.
 
@@ -295,7 +307,6 @@ New data sources are added by implementing the `Provider` trait in `src/metrics/
 - Wayland: no always-on-top, no window positioning and no transparency — use XWayland (see above).
 - Global hotkeys exist on Windows only (not on Linux); no tray icon yet.
 - The executables are not code-signed.
-- Support for other screens
 
 ### Changelog
 
@@ -304,6 +315,7 @@ New data sources are added by implementing the `Provider` trait in `src/metrics/
 - `hudmon.ini`: new keys `hotkeys` and `key_<action>`; `Config` keeps the bindings so saving from the settings window does not erase them.
 - Settings window: keys `1`–`7`, arrows, `C`, `L`, `Enter`, `Delete`; it reloads `hudmon.ini` every ~0.5 s when the file is changed from outside.
 - `Cargo.toml`: added the `Win32_UI_Input_KeyboardAndMouse` feature of `windows-sys`.
+- **Hotkeys page in the settings window (Windows):** change or disable each shortcut and the global switch, record a new combination by pressing it, *Defaults* and *Apply* (restarts the overlay) buttons; conflicts between actions are refused and `Ctrl+Alt+<letter/digit>` (AltGr) gets a warning. Helpers `compose`, `taken`, `altgr_risky`, `pretty` added to `hotkeys.rs` (unit-tested).
 
 ---
 
@@ -478,7 +490,7 @@ Wszystko poza pokaż/ukryj zapisuje się do `hudmon.ini`, więc otwarte okno ust
 
 **Dlaczego nie `Ctrl+Alt+<litera>`?** Na wielu układach klawiatury (np. polskim) prawy `Alt` (AltGr) to to samo co `Ctrl+Alt`, więc taki skrót zablokowałby pisanie znaków `ą`, `ć`, `ł` we wszystkich programach. Dlatego domyślnie użyto klawiszy F, `+`/`-` i PageUp/PageDown.
 
-**Zmiana lub wyłączenie skrótów.** Edytuj `hudmon.ini` (zobacz [Ustawienia](#ustawienia)) i uruchom overlay ponownie (*Zamknij* → *Uruchom*):
+**Zmiana lub wyłączenie skrótów.** Użyj strony **Skróty >** w oknie ustawień (opis niżej) albo edytuj ręcznie `hudmon.ini` (zobacz [Ustawienia](#ustawienia)). Overlay czyta skróty tylko przy starcie, więc po zmianie kliknij *Zastosuj* na stronie Skróty (lub *Zamknij* → *Uruchom*). Przykład ręcznej edycji:
 
 ```ini
 hotkeys=1                 # 0 = wyłącz wszystkie skróty globalne
@@ -501,10 +513,22 @@ Działają, gdy okno ustawień ma fokus (Windows i Linux):
 | `→` / `←` | Krycie tła +10 % / −10 % (można przytrzymać) |
 | `C` | Następny róg ekranu |
 | `L` | Przełącz język PL / EN |
+| `K` | Otwórz stronę Skróty (Windows) |
 | `Enter` | Uruchom overlay |
 | `Delete` | Zamknij overlay |
 
 Okno ustawień co ok. 0,5 s ponownie czyta też `hudmon.ini`, więc zmiany zrobione skrótami globalnymi widać tam od razu.
+
+### Strona Skróty w oknie ustawień (Windows)
+
+Kliknij **Skróty >** (lub naciśnij `K`), aby edytować skróty globalne. Strona ma wiersz dla każdej akcji:
+
+- Pole **Skróty globalne** — włącza/wyłącza wszystkie skróty globalne (`hotkeys=` w pliku ini).
+- **Kliknij skrót**, a potem naciśnij nową kombinację (co najmniej jeden z `Ctrl` / `Alt` / `Shift` / `Win` plus klawisz). `Esc` anuluje nagrywanie.
+- **Przycisk `x`** albo `Del` / `Backspace` podczas nagrywania — wyłącza dany skrót (`none`).
+- Skrót użyty już przez inną akcję jest odrzucany (*Skrot jest juz uzyty*). `Ctrl+Alt+<litera lub cyfra>` jest przyjmowany, ale pojawia się ostrzeżenie, bo na wielu układach to AltGr i blokuje pisanie znaków specjalnych.
+- **Domyślne** przywraca wszystkie domyślne skróty; **Zastosuj** restartuje działający overlay, żeby zarejestrował nowe skróty (jeśli overlay nie działa, nic nie trzeba robić — wczyta je przy następnym starcie). `Esc` (gdy nic się nie nagrywa) lub **Wróć** wraca do głównej strony.
+- Aby nagrać kombinację, którą ma zarezerwowaną *działający* overlay (np. jego własny obecny skrót), najpierw zamknij overlay — Windows dostarcza taką kombinację do overlaya, a nie do okna ustawień.
 
 > **Linux:** skróty globalne nie są zaimplementowane (X11/Wayland nie mają wspólnego API). Przypisz skrót w swoim środowisku graficznym do polecenia edytującego `hudmon.ini` albo użyj klawiszy w oknie ustawień.
 
@@ -603,7 +627,6 @@ Nowe źródło danych dodajesz, implementując trait `Provider` w `src/metrics/`
 - Wayland: brak „zawsze na wierzchu”, brak ustawiania pozycji okna i brak przezroczystości — użyj XWayland (patrz wyżej).
 - Skróty globalne są tylko na Windowsie (na Linuksie ich nie ma); brak ikony w zasobniku.
 - Pliki wykonywalne nie są podpisane cyfrowo.
-<<<<<<< HEAD
 
 ### Lista zmian
 
@@ -612,6 +635,4 @@ Nowe źródło danych dodajesz, implementując trait `Provider` w `src/metrics/`
 - `hudmon.ini`: nowe klucze `hotkeys` i `key_<akcja>`; `Config` przechowuje skróty, więc zapis z okna ustawień ich nie kasuje.
 - Okno ustawień: klawisze `1`–`7`, strzałki, `C`, `L`, `Enter`, `Delete`; co ok. 0,5 s ponownie czyta `hudmon.ini`, gdy plik zmieni się z zewnątrz.
 - `Cargo.toml`: dodano feature `Win32_UI_Input_KeyboardAndMouse` w `windows-sys`.
-=======
-- Obsługa innych ekranów
->>>>>>> 1eeaa5059648edcf4a756fc0cef7674e5a1150a8
+- **Strona Skróty w oknie ustawień (Windows):** zmiana lub wyłączenie każdego skrótu i przełącznika globalnego, nagrywanie nowej kombinacji przez jej naciśnięcie, przyciski *Domyślne* i *Zastosuj* (restartuje overlay); konflikty między akcjami są odrzucane, a `Ctrl+Alt+<litera/cyfra>` (AltGr) daje ostrzeżenie. Do `hotkeys.rs` dodano funkcje `compose`, `taken`, `altgr_risky`, `pretty` (z testami jednostkowymi).

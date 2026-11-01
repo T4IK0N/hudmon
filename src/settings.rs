@@ -17,13 +17,14 @@ use winit::{
     dpi::PhysicalSize,
     event::{ElementState, Event, KeyEvent, MouseButton, StartCause, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    keyboard::{KeyCode, PhysicalKey},
+    keyboard::{KeyCode, ModifiersState, PhysicalKey},
     window::WindowBuilder,
 };
 
 const WIN_W: usize = 400;
 const WIN_H: usize = 708;
 const PREVIEW: (usize, usize, usize, usize) = (16, 560, 368, 132); // x, y, width, height
+const HK_ROW_Y: i32 = 82; // first row on the hotkeys page
 const BG: u32 = 0x181818;
 const LIGHT: u32 = 0x808080;
 const COLORS: [u32; 8] = [
@@ -41,6 +42,31 @@ enum Status {
     Denied,
 }
 
+/// which screen of the settings window is shown
+#[derive(Clone, Copy, PartialEq)]
+enum Page {
+    Main,
+    Hotkeys,
+}
+
+/// message on the hotkeys page (index into `T::hk_msgs`)
+#[derive(Clone, Copy, PartialEq)]
+enum HkMsg {
+    None,
+    Capture,
+    NeedModifier,
+    Taken,
+    AltGr,
+}
+
+/// state of the window that is not part of the saved settings
+#[derive(Clone, Copy, PartialEq)]
+struct Ui {
+    page: Page,
+    capture: Option<usize>, // index of the action whose shortcut is being recorded
+    msg: HkMsg,
+}
+
 struct T {
     title: &'static str,
     window_title: &'static str,
@@ -55,6 +81,16 @@ struct T {
     close: &'static str,
     preview: &'static str,
     status: [&'static str; 6],
+    hk_open: &'static str,
+    hk_title: &'static str,
+    hk_back: &'static str,
+    hk_master: &'static str,
+    hk_names: [&'static str; 13], // order = `hotkeys::ALL`
+    hk_none: &'static str,
+    hk_reset: &'static str,
+    hk_apply: &'static str,
+    hk_msgs: [&'static str; 5], // order = `HkMsg`
+    hk_help: [&'static str; 4],
 }
 
 fn tr(lang: Lang) -> T {
@@ -88,6 +124,41 @@ fn tr(lang: Lang) -> T {
                 "Zamknieto overlay",
                 "Brak uprawnien (admin)",
             ],
+            hk_open: "Skroty >",
+            hk_title: "SKROTY",
+            hk_back: "Wroc",
+            hk_master: "Skroty globalne",
+            hk_names: [
+                "Widocznosc",
+                "FPS",
+                "CPU",
+                "GPU",
+                "RAM",
+                "Temp.",
+                "Napisy",
+                "Ramka",
+                "Naroznik",
+                "Czcionka +",
+                "Czcionka -",
+                "Krycie +",
+                "Krycie -",
+            ],
+            hk_none: "wylaczony",
+            hk_reset: "Domyslne",
+            hk_apply: "Zastosuj",
+            hk_msgs: [
+                "",
+                "Nacisnij skrot...",
+                "Dodaj Ctrl/Alt/Shift",
+                "Skrot jest juz uzyty",
+                "Uwaga: Ctrl+Alt+litera",
+            ],
+            hk_help: [
+                "Kliknij skrot, potem nacisnij nowa kombinacje.",
+                "Esc anuluje, Del lub x wylacza skrot.",
+                "Zmiany po restarcie overlay (Zastosuj).",
+                "Ctrl+Alt+litera blokuje polskie znaki (AltGr).",
+            ],
         },
         Lang::En => T {
             title: "HUDMON SETTINGS",
@@ -118,6 +189,41 @@ fn tr(lang: Lang) -> T {
                 "Overlay closed",
                 "Access denied (admin)",
             ],
+            hk_open: "Hotkeys >",
+            hk_title: "HOTKEYS",
+            hk_back: "Back",
+            hk_master: "Global hotkeys",
+            hk_names: [
+                "Show/hide",
+                "FPS",
+                "CPU",
+                "GPU",
+                "RAM",
+                "Temp.",
+                "Labels",
+                "Border",
+                "Corner",
+                "Font +",
+                "Font -",
+                "Opacity +",
+                "Opacity -",
+            ],
+            hk_none: "disabled",
+            hk_reset: "Defaults",
+            hk_apply: "Apply",
+            hk_msgs: [
+                "",
+                "Press a shortcut...",
+                "Add Ctrl/Alt/Shift",
+                "Shortcut already used",
+                "Warn: Ctrl+Alt+letter",
+            ],
+            hk_help: [
+                "Click a shortcut, then press new keys.",
+                "Esc cancels, Del or x disables the shortcut.",
+                "Changes apply after overlay restart (Apply).",
+                "Ctrl+Alt+letter blocks AltGr characters.",
+            ],
         },
     }
 }
@@ -138,6 +244,13 @@ enum Act {
     StartOverlay,
     CloseOverlay,
     SetLang(Lang),
+    OpenHotkeys,
+    Back,
+    HkMaster,
+    HkEdit(usize),
+    HkClear(usize),
+    HkReset,
+    HkApply,
 }
 
 struct Wd {
@@ -148,7 +261,62 @@ struct Wd {
     act: Act,
 }
 
-fn widgets() -> Vec<Wd> {
+/// widgets of the hotkeys page: Back, master switch, a row per action (shortcut + disable button), Defaults, Apply
+fn hotkey_widgets() -> Vec<Wd> {
+    let mut v = vec![
+        Wd {
+            x: 300,
+            y: 8,
+            w: 84,
+            h: 28,
+            act: Act::Back,
+        },
+        Wd {
+            x: 16,
+            y: 46,
+            w: 368,
+            h: 24,
+            act: Act::HkMaster,
+        },
+    ];
+    for i in 0..hotkeys::ALL.len() {
+        let y = HK_ROW_Y + i as i32 * 30;
+        v.push(Wd {
+            x: 196,
+            y,
+            w: 148,
+            h: 28,
+            act: Act::HkEdit(i),
+        });
+        v.push(Wd {
+            x: 348,
+            y,
+            w: 36,
+            h: 28,
+            act: Act::HkClear(i),
+        });
+    }
+    v.push(Wd {
+        x: 16,
+        y: 484,
+        w: 144,
+        h: 28,
+        act: Act::HkReset,
+    });
+    v.push(Wd {
+        x: 168,
+        y: 484,
+        w: 144,
+        h: 28,
+        act: Act::HkApply,
+    });
+    v
+}
+
+fn widgets(page: Page) -> Vec<Wd> {
+    if page == Page::Hotkeys {
+        return hotkey_widgets();
+    }
     let mut v = Vec::new();
     let toggles = [
         Act::Fps,
@@ -237,6 +405,16 @@ fn widgets() -> Vec<Wd> {
         h: 28,
         act: Act::SetLang(Lang::En),
     });
+    if cfg!(windows) {
+        // global hotkeys exist on Windows only
+        v.push(Wd {
+            x: 232,
+            y: 446,
+            w: 152,
+            h: 24,
+            act: Act::OpenHotkeys,
+        });
+    }
     v
 }
 
@@ -254,18 +432,25 @@ fn toggle_state(cfg: &Config, a: Act) -> (bool, usize) {
 
 enum Click {
     Nothing,
+    Redraw, // only the window state changed (page, recording), nothing to save
     Changed,
     StartOverlay,
     CloseOverlay,
+    ApplyHotkeys,
 }
 
-fn click(cfg: &mut Config, mx: i32, my: i32) -> Click {
-    let before = cfg.clone();
-    for wd in widgets() {
+fn click(cfg: &mut Config, ui: &mut Ui, mx: i32, my: i32) -> Click {
+    let (before, ui_before) = (cfg.clone(), *ui);
+    for wd in widgets(ui.page) {
         if mx >= wd.x && mx < wd.x + wd.w && my >= wd.y && my < wd.y + wd.h {
+            if !matches!(wd.act, Act::HkEdit(_)) {
+                ui.capture = None; // any other click ends the recording
+                ui.msg = HkMsg::None;
+            }
             match wd.act {
                 Act::StartOverlay => return Click::StartOverlay,
                 Act::CloseOverlay => return Click::CloseOverlay,
+                Act::HkApply => return Click::ApplyHotkeys,
                 Act::Fps => cfg.fps = !cfg.fps,
                 Act::Cpu => cfg.cpu = !cfg.cpu,
                 Act::Gpu => cfg.gpu = !cfg.gpu,
@@ -280,24 +465,191 @@ fn click(cfg: &mut Config, mx: i32, my: i32) -> Click {
                 Act::Color(c) => cfg.bg_color = c,
                 Act::Corner(n) => cfg.corner = n,
                 Act::SetLang(l) => cfg.lang = l,
+                Act::OpenHotkeys => ui.page = Page::Hotkeys,
+                Act::Back => ui.page = Page::Main,
+                Act::HkMaster => cfg.hotkeys = !cfg.hotkeys,
+                Act::HkEdit(i) => {
+                    if ui.capture == Some(i) {
+                        ui.capture = None;
+                        ui.msg = HkMsg::None;
+                    } else {
+                        ui.capture = Some(i);
+                        ui.msg = HkMsg::Capture;
+                    }
+                }
+                Act::HkClear(i) => cfg.keys[i] = hotkeys::NONE.to_string(),
+                Act::HkReset => cfg.keys = hotkeys::default_keys(),
             }
             break;
         }
     }
     if *cfg != before {
         Click::Changed
+    } else if *ui != ui_before {
+        Click::Redraw
     } else {
         Click::Nothing
     }
 }
 
+/// name of a physical key in the notation of `hotkeys::parse_chord` (`None` for modifiers and unsupported keys)
+fn code_name(code: KeyCode) -> Option<&'static str> {
+    use KeyCode::*;
+    Some(match code {
+        KeyA => "a",
+        KeyB => "b",
+        KeyC => "c",
+        KeyD => "d",
+        KeyE => "e",
+        KeyF => "f",
+        KeyG => "g",
+        KeyH => "h",
+        KeyI => "i",
+        KeyJ => "j",
+        KeyK => "k",
+        KeyL => "l",
+        KeyM => "m",
+        KeyN => "n",
+        KeyO => "o",
+        KeyP => "p",
+        KeyQ => "q",
+        KeyR => "r",
+        KeyS => "s",
+        KeyT => "t",
+        KeyU => "u",
+        KeyV => "v",
+        KeyW => "w",
+        KeyX => "x",
+        KeyY => "y",
+        KeyZ => "z",
+        Digit0 => "0",
+        Numpad0 => "numpad0",
+        Digit1 => "1",
+        Numpad1 => "numpad1",
+        Digit2 => "2",
+        Numpad2 => "numpad2",
+        Digit3 => "3",
+        Numpad3 => "numpad3",
+        Digit4 => "4",
+        Numpad4 => "numpad4",
+        Digit5 => "5",
+        Numpad5 => "numpad5",
+        Digit6 => "6",
+        Numpad6 => "numpad6",
+        Digit7 => "7",
+        Numpad7 => "numpad7",
+        Digit8 => "8",
+        Numpad8 => "numpad8",
+        Digit9 => "9",
+        Numpad9 => "numpad9",
+        F1 => "f1",
+        F2 => "f2",
+        F3 => "f3",
+        F4 => "f4",
+        F5 => "f5",
+        F6 => "f6",
+        F7 => "f7",
+        F8 => "f8",
+        F9 => "f9",
+        F10 => "f10",
+        F11 => "f11",
+        F12 => "f12",
+        F13 => "f13",
+        F14 => "f14",
+        F15 => "f15",
+        F16 => "f16",
+        F17 => "f17",
+        F18 => "f18",
+        F19 => "f19",
+        F20 => "f20",
+        F21 => "f21",
+        F22 => "f22",
+        F23 => "f23",
+        F24 => "f24",
+        ArrowUp => "up",
+        ArrowDown => "down",
+        ArrowLeft => "left",
+        ArrowRight => "right",
+        PageUp => "pageup",
+        PageDown => "pagedown",
+        Home => "home",
+        End => "end",
+        Insert => "insert",
+        Delete => "delete",
+        Space => "space",
+        Equal => "plus",
+        Minus => "minus",
+        _ => return None,
+    })
+}
+
+/// hotkeys page: records the shortcut of the selected row (modifiers + key); Esc cancels, Del/Backspace disables
+fn hotkey_key(cfg: &mut Config, ui: &mut Ui, code: KeyCode, mods: ModifiersState) -> Click {
+    let Some(i) = ui.capture else {
+        if code == KeyCode::Escape {
+            ui.page = Page::Main;
+            ui.msg = HkMsg::None;
+            return Click::Redraw;
+        }
+        return Click::Nothing;
+    };
+    let any_mod = mods.control_key() || mods.alt_key() || mods.shift_key() || mods.super_key();
+    match code {
+        KeyCode::Escape => {
+            ui.capture = None;
+            ui.msg = HkMsg::None;
+            return Click::Redraw;
+        }
+        KeyCode::Delete | KeyCode::Backspace if !any_mod => {
+            cfg.keys[i] = hotkeys::NONE.to_string();
+            ui.capture = None;
+            ui.msg = HkMsg::None;
+            return Click::Changed;
+        }
+        _ => {}
+    }
+    let Some(name) = code_name(code) else {
+        return Click::Nothing; // only a modifier so far - keep waiting
+    };
+    let Some(chord) = hotkeys::compose(
+        mods.control_key(),
+        mods.alt_key(),
+        mods.shift_key(),
+        mods.super_key(),
+        name,
+    ) else {
+        ui.msg = HkMsg::NeedModifier;
+        return Click::Redraw;
+    };
+    if hotkeys::taken(&cfg.keys, i, &chord) {
+        ui.msg = HkMsg::Taken;
+        return Click::Redraw;
+    }
+    ui.msg = if hotkeys::altgr_risky(&chord) {
+        HkMsg::AltGr
+    } else {
+        HkMsg::None
+    };
+    ui.capture = None;
+    cfg.keys[i] = chord;
+    Click::Changed
+}
+
 /// keys inside the settings window (the window must have the focus; the global hotkeys are in `hotkeys.rs`)
-/// 1-7 toggles, Up/Down font, Left/Right opacity, C corner, L language, Enter start, Delete close
-fn key_press(cfg: &mut Config, code: KeyCode) -> Click {
+/// 1-7 toggles, Up/Down font, Left/Right opacity, C corner, L language, K hotkeys page (Windows),
+/// Enter start, Delete close
+fn key_press(cfg: &mut Config, ui: &mut Ui, code: KeyCode, mods: ModifiersState) -> Click {
+    if ui.page == Page::Hotkeys {
+        return hotkey_key(cfg, ui, code, mods);
+    }
     let before = cfg.clone();
     let action = match code {
         KeyCode::Enter | KeyCode::NumpadEnter => return Click::StartOverlay,
         KeyCode::Delete => return Click::CloseOverlay,
+        KeyCode::KeyK if cfg!(windows) => {
+            ui.page = Page::Hotkeys;
+            return Click::Redraw;
+        }
         KeyCode::KeyL => {
             cfg.lang = if cfg.lang == Lang::Pl {
                 Lang::En
@@ -345,11 +697,15 @@ fn frame(buf: &mut [u32], x: i32, y: i32, w: i32, h: i32, border: u32, fill: u32
     );
 }
 
-fn draw_ui(buf: &mut [u32], cfg: &Config, status: Status) {
+fn draw_ui(buf: &mut [u32], cfg: &Config, status: Status, ui: Ui) {
+    if ui.page == Page::Hotkeys {
+        draw_hotkeys(buf, cfg, status, ui);
+        return;
+    }
     let t = tr(cfg.lang);
     buf.fill(0xFF00_0000 | BG);
     text(buf, WIN_W, 16, 14, t.title, LABEL, 2);
-    for wd in widgets() {
+    for wd in widgets(Page::Main) {
         let (x, y) = (wd.x, wd.y);
         match wd.act {
             Act::Scale(d) | Act::Opacity(d) => {
@@ -437,6 +793,24 @@ fn draw_ui(buf: &mut [u32], cfg: &Config, status: Status) {
                     2,
                 );
             }
+            Act::OpenHotkeys => {
+                frame(buf, x, y, wd.w, wd.h, LIGHT, 0x303030);
+                text(
+                    buf,
+                    WIN_W,
+                    x as usize + 4,
+                    y as usize + 4,
+                    t.hk_open,
+                    VALUE,
+                    2,
+                );
+            }
+            Act::Back
+            | Act::HkMaster
+            | Act::HkEdit(_)
+            | Act::HkClear(_)
+            | Act::HkReset
+            | Act::HkApply => {} // widgets of the hotkeys page
             a => {
                 let (on, i) = toggle_state(cfg, a);
                 frame(buf, x, y + 2, 20, 20, LIGHT, 0x000000);
@@ -516,6 +890,127 @@ fn draw_ui(buf: &mut [u32], cfg: &Config, status: Status) {
     }
 }
 
+fn draw_hotkeys(buf: &mut [u32], cfg: &Config, status: Status, ui: Ui) {
+    let t = tr(cfg.lang);
+    buf.fill(0xFF00_0000 | BG);
+    text(buf, WIN_W, 16, 14, t.hk_title, LABEL, 2);
+    for wd in widgets(Page::Hotkeys) {
+        let (x, y) = (wd.x, wd.y);
+        match wd.act {
+            Act::Back => {
+                frame(buf, x, y, wd.w, wd.h, LIGHT, 0x303030);
+                text(
+                    buf,
+                    WIN_W,
+                    x as usize + 10,
+                    y as usize + 6,
+                    t.hk_back,
+                    VALUE,
+                    2,
+                );
+            }
+            Act::HkMaster => {
+                let on = cfg.hotkeys;
+                frame(buf, x, y + 2, 20, 20, LIGHT, 0x000000);
+                if on {
+                    fill_rect(buf, WIN_W, x as usize + 5, y as usize + 7, 10, 10, VALUE);
+                }
+                text(
+                    buf,
+                    WIN_W,
+                    x as usize + 32,
+                    y as usize + 4,
+                    t.hk_master,
+                    if on { VALUE } else { DIM },
+                    2,
+                );
+            }
+            Act::HkEdit(i) => {
+                let rec = ui.capture == Some(i);
+                frame(
+                    buf,
+                    x,
+                    y,
+                    wd.w,
+                    wd.h,
+                    if rec { VALUE } else { LIGHT },
+                    if rec { 0x205030 } else { 0x303030 },
+                );
+                let key = &cfg.keys[i];
+                let (label, col) = if rec {
+                    ("...".to_string(), VALUE)
+                } else if key == hotkeys::NONE {
+                    (t.hk_none.to_string(), DIM)
+                } else {
+                    (
+                        hotkeys::pretty(key, 17),
+                        if cfg.hotkeys { VALUE } else { DIM },
+                    )
+                };
+                text(buf, WIN_W, x as usize + 6, y as usize + 10, &label, col, 1);
+            }
+            Act::HkClear(_) => {
+                frame(buf, x, y, wd.w, wd.h, LIGHT, 0x402020);
+                text(
+                    buf,
+                    WIN_W,
+                    x as usize + 10,
+                    y as usize + 6,
+                    "x",
+                    0xFF8080,
+                    2,
+                );
+            }
+            Act::HkReset => {
+                frame(buf, x, y, wd.w, wd.h, LIGHT, 0x303030);
+                text(
+                    buf,
+                    WIN_W,
+                    x as usize + 8,
+                    y as usize + 6,
+                    t.hk_reset,
+                    VALUE,
+                    2,
+                );
+            }
+            Act::HkApply => {
+                frame(buf, x, y, wd.w, wd.h, LIGHT, 0x205030);
+                text(
+                    buf,
+                    WIN_W,
+                    x as usize + 8,
+                    y as usize + 6,
+                    t.hk_apply,
+                    VALUE,
+                    2,
+                );
+            }
+            _ => {}
+        }
+    }
+    for (i, name) in t.hk_names.iter().enumerate() {
+        let y = HK_ROW_Y as usize + i * 30 + 6;
+        text(
+            buf,
+            WIN_W,
+            16,
+            y,
+            name,
+            if cfg.hotkeys { LABEL } else { DIM },
+            2,
+        );
+    }
+    let msg = if ui.msg != HkMsg::None {
+        t.hk_msgs[ui.msg as usize]
+    } else {
+        t.status[status as usize]
+    };
+    text(buf, WIN_W, 16, 524, msg, VALUE, 2);
+    for (i, line) in t.hk_help.iter().enumerate() {
+        text(buf, WIN_W, 16, 560 + i * 16, line, DIM, 1);
+    }
+}
+
 pub fn run() {
     let mut cfg = Config::load();
     let event_loop = EventLoop::new().expect("event loop");
@@ -562,6 +1057,12 @@ pub fn run() {
     let mut surface = softbuffer::Surface::new(&context, window.clone()).expect("surface");
     let mut mouse = (0i32, 0i32);
     let mut status = Status::None;
+    let mut ui = Ui {
+        page: Page::Main,
+        capture: None,
+        msg: HkMsg::None,
+    };
+    let mut mods = ModifiersState::default();
     let mut cfg_time = config::mtime();
 
     event_loop
@@ -596,11 +1097,15 @@ pub fn run() {
                     mouse = (position.x as i32, position.y as i32);
                     return;
                 }
+                WindowEvent::ModifiersChanged(m) => {
+                    mods = m.state();
+                    return;
+                }
                 WindowEvent::MouseInput {
                     state: ElementState::Pressed,
                     button: MouseButton::Left,
                     ..
-                } => click(&mut cfg, mouse.0, mouse.1),
+                } => click(&mut cfg, &mut ui, mouse.0, mouse.1),
                 WindowEvent::KeyboardInput {
                     event:
                         KeyEvent {
@@ -622,7 +1127,7 @@ pub fn run() {
                     if repeat && !arrow {
                         return;
                     }
-                    key_press(&mut cfg, code)
+                    key_press(&mut cfg, &mut ui, code, mods)
                 }
                 WindowEvent::RedrawRequested => {
                     let (Some(w), Some(h)) =
@@ -632,7 +1137,7 @@ pub fn run() {
                     };
                     if surface.resize(w, h).is_ok() {
                         if let Ok(mut buf) = surface.buffer_mut() {
-                            draw_ui(&mut buf, &cfg, status);
+                            draw_ui(&mut buf, &cfg, status, ui);
                             let _ = buf.present();
                         }
                     }
@@ -662,6 +1167,22 @@ pub fn run() {
                         (_, 0) => Status::Closed,
                         _ => Status::Denied,
                     };
+                    window.request_redraw();
+                }
+                Click::Redraw => window.request_redraw(),
+                Click::ApplyHotkeys => {
+                    // the overlay reads its hotkeys only at start: restart it if it is running
+                    let r = instance::kill_others();
+                    status = if r.failed > 0 {
+                        Status::Denied
+                    } else if r.killed == 0 {
+                        Status::NotRunning
+                    } else if instance::start_overlay() {
+                        Status::Started
+                    } else {
+                        Status::MissingFile
+                    };
+                    ui.msg = HkMsg::None;
                     window.request_redraw();
                 }
                 Click::Nothing => {}

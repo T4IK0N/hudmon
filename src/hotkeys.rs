@@ -1,11 +1,4 @@
 //! keyboard shortcuts: the list of actions (shared with the settings window) + global hotkeys (Windows only).
-//!
-//! * the overlay is click-through and never has the focus, so the only way to control it from inside a game
-//!   is a *global* hotkey (`RegisterHotKey`). It lives in the overlay process; most actions simply change
-//!   `hudmon.ini` (the same file the settings window writes), so the overlay and the settings window stay in sync.
-//! * show/hide is the exception: it is kept in memory only (`VISIBLE`) and is never written to the file,
-//!   so a restarted overlay is always visible.
-//! * bindings are strings like `ctrl+alt+f2` (see `parse_chord`) stored in `hudmon.ini` as `key_<action>=...`.
 use crate::config::Config;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -111,8 +104,67 @@ pub fn normalize(v: &str) -> Option<String> {
     parse_chord(&v).map(|_| v)
 }
 
+/// builds a normalized shortcut text from the pressed modifiers and the name of the key.
+pub fn compose(ctrl: bool, alt: bool, shift: bool, win: bool, key: &str) -> Option<String> {
+    let mut parts = Vec::new();
+    if ctrl {
+        parts.push("ctrl");
+    }
+    if alt {
+        parts.push("alt");
+    }
+    if shift {
+        parts.push("shift");
+    }
+    if win {
+        parts.push("win");
+    }
+    parts.push(key);
+    let s = parts.join("+");
+    parse_chord(&s).map(|_| s)
+}
+
+/// Ctrl+Alt+<letter or digit> is AltGr+<character> on many keyboard layouts (it would block typing)
+pub fn altgr_risky(s: &str) -> bool {
+    parse_chord(s).is_some_and(|c| {
+        c.ctrl && c.alt && !c.shift && !c.win && matches!(c.vk, 0x30..=0x39 | 0x41..=0x5A)
+    })
+}
+
+/// is `chord` already used by an action other than `idx`? (compares meaning, not text)
+pub fn taken(keys: &[String], idx: usize, chord: &str) -> bool {
+    let c = parse_chord(chord);
+    c.is_some()
+        && keys
+            .iter()
+            .enumerate()
+            .any(|(j, k)| j != idx && parse_chord(k) == c)
+}
+
+/// prettify extension in real app
+pub fn pretty(s: &str, max: usize) -> String {
+    let out = s
+        .split('+')
+        .map(|p| match p {
+            "pageup" | "pgup" => "PgUp".to_string(),
+            "pagedown" | "pgdn" => "PgDn".to_string(),
+            _ => {
+                let mut c = p.chars();
+                c.next()
+                    .map(|f| f.to_uppercase().collect::<String>() + c.as_str())
+                    .unwrap_or_default()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("+");
+    if out.chars().count() > max {
+        out.chars().take(max.saturating_sub(2)).collect::<String>() + ".."
+    } else {
+        out
+    }
+}
+
 /// applies the action to the config. Returns true when something changed.
-/// (`ToggleVisible` does not touch the config - see `VISIBLE`)
 pub fn apply(a: Action, c: &mut Config) -> bool {
     let before = c.clone();
     match a {
@@ -220,12 +272,11 @@ fn trigger(a: Action) {
     }
     let mut c = Config::load();
     if apply(a, &mut c) {
-        c.save(); // the overlay notices the new file within ~0.5 s
+        c.save();
     }
 }
 
-/// registers the global hotkeys and handles them on a separate thread.
-/// Bindings are read once, at start (changing `key_*` in the ini needs an overlay restart).
+/// registers the global hotkeys and handles them on a separate thread
 #[cfg(windows)]
 pub fn spawn(cfg: &Config) {
     use crate::metrics::fps::log;
@@ -347,5 +398,36 @@ mod tests {
 
         c.corner = 3;
         assert!(apply(Action::NextCorner, &mut c) && c.corner == 0);
+    }
+
+    #[test]
+    fn compose_pretty_taken_altgr() {
+        assert_eq!(
+            compose(true, true, false, false, "f2").as_deref(),
+            Some("ctrl+alt+f2")
+        );
+        assert_eq!(
+            compose(true, false, true, true, "a").as_deref(),
+            Some("ctrl+shift+win+a")
+        );
+        assert_eq!(compose(false, false, false, false, "f2"), None);
+        assert_eq!(compose(true, false, false, false, "nope"), None);
+
+        assert_eq!(pretty("ctrl+alt+pagedown", 17), "Ctrl+Alt+PgDn");
+        assert_eq!(pretty("ctrl+alt+shift+win+f12", 17), "Ctrl+Alt+Shift+..");
+        assert_eq!(pretty("ctrl+f2", 17), "Ctrl+F2");
+
+        assert!(altgr_risky("ctrl+alt+c"));
+        assert!(altgr_risky("alt+ctrl+5"));
+        assert!(!altgr_risky("ctrl+alt+f2"));
+        assert!(!altgr_risky("ctrl+shift+c"));
+        assert!(!altgr_risky("none"));
+
+        let keys = default_keys();
+        assert!(taken(&keys, 0, "ctrl+alt+f2")); // belongs to action 1
+        assert!(taken(&keys, 0, "alt+ctrl+F2")); // same meaning, different text
+        assert!(!taken(&keys, 1, "ctrl+alt+f2")); // its own binding
+        assert!(!taken(&keys, 0, "ctrl+alt+f12"));
+        assert!(!taken(&keys, 0, "none"));
     }
 }
