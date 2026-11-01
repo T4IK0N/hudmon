@@ -295,6 +295,7 @@ New data sources are added by implementing the `Provider` trait in `src/metrics/
 - Wayland: no always-on-top, no window positioning and no transparency — use XWayland (see above).
 - Global hotkeys exist on Windows only (not on Linux); no tray icon yet.
 - The executables are not code-signed.
+- Support for other screens
 
 ### Changelog
 
@@ -602,6 +603,7 @@ Nowe źródło danych dodajesz, implementując trait `Provider` w `src/metrics/`
 - Wayland: brak „zawsze na wierzchu”, brak ustawiania pozycji okna i brak przezroczystości — użyj XWayland (patrz wyżej).
 - Skróty globalne są tylko na Windowsie (na Linuksie ich nie ma); brak ikony w zasobniku.
 - Pliki wykonywalne nie są podpisane cyfrowo.
+<<<<<<< HEAD
 
 ### Lista zmian
 
@@ -610,3 +612,6 @@ Nowe źródło danych dodajesz, implementując trait `Provider` w `src/metrics/`
 - `hudmon.ini`: nowe klucze `hotkeys` i `key_<akcja>`; `Config` przechowuje skróty, więc zapis z okna ustawień ich nie kasuje.
 - Okno ustawień: klawisze `1`–`7`, strzałki, `C`, `L`, `Enter`, `Delete`; co ok. 0,5 s ponownie czyta `hudmon.ini`, gdy plik zmieni się z zewnątrz.
 - `Cargo.toml`: dodano feature `Win32_UI_Input_KeyboardAndMouse` w `windows-sys`.
+=======
+- Obsługa innych ekranów
+>>>>>>> 1eeaa5059648edcf4a756fc0cef7674e5a1150a8
